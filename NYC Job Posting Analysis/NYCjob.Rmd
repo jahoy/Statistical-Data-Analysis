@@ -1,0 +1,436 @@
+---
+title: "Report"
+author: "KK"
+date: '2019 7 13 '
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### 0. Data Loading
+```{r,warning=FALSE,message=FALSE}
+
+JOB = read.csv("D:\\Dropbox\\DATA SET\\new-york-city-current-job-postings\\nyc-jobs.csv",stringsAsFactors = FALSE)
+
+JOB$Posting.Date = as.Date(JOB$Posting.Date, format = "%Y-%m-%d %H:%M")
+summary(JOB$Posting.Date)
+JOB$Post..Until = as.Date(JOB$Post..Until, format = "%Y-%m-%d")
+```
+
+#### 1. Library
+
+```{r,warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(reshape)
+library(tseries)
+library(tm)
+library(stringr)
+library(qgraph)
+```
+
+
+
+
+#### 2. Exploratory Data Analysis
+
+
+```{r}
+format(JOB$Posting.Date[1],"%y")
+format(JOB$Posting.Date[1],"%m")
+
+JOB$YM = paste(format(JOB$Posting.Date,"%y"),
+               format(JOB$Posting.Date,"%m"), sep="/")
+```
+
+```{r}
+
+summary(as.factor(JOB$Posting.Type))
+# summary(as.factor(JOB$Business.Title))
+
+JOB_YM  = JOB %>%
+  group_by(YM,Posting.Type) %>%
+  summarise(Count = length(Posting.Date),
+            N_Positions = sum(X..Of.Positions, na.rm = TRUE)) %>%
+  arrange(YM)
+
+
+
+
+ggplot(JOB_YM[-nrow(JOB_YM),]) +
+  geom_point(aes(x = YM, y= Count,col = Posting.Type)) +
+  geom_line(aes(x = YM, y = Count,col = Posting.Type, group = Posting.Type)) +
+  # geom_point(aes(x = YM, y= N_Positions,col = Posting.Type)) +
+   # geom_line(aes(x = YM, y = N_Positions,col = Posting.Type, group = Posting.Type)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplot(JOB_YM[-nrow(JOB_YM),]) +
+  # geom_point(aes(x = YM, y= Count,col = Posting.Type)) +
+  # geom_line(aes(x = YM, y = Count,col = Posting.Type, group = Posting.Type)) +
+  geom_point(aes(x = YM, y= N_Positions,col = Posting.Type)) +
+   geom_line(aes(x = YM, y = N_Positions,col = Posting.Type, group = Posting.Type)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+#### Category
+```{r}
+length(levels(as.factor(JOB$Business.Title)))
+
+CORPUS = Corpus(VectorSource(JOB$Business.Title))
+CORPUS_TM = tm_map(CORPUS, tolower)
+CORPUS_TM = tm_map(CORPUS_TM, removeNumbers)
+CORPUS_TM = tm_map(CORPUS_TM, removePunctuation)
+CORPUS_TM = tm_map(CORPUS_TM, stripWhitespace)
+CORPUS_TM = tm_map(CORPUS_TM, removeWords,
+                    c(stopwords("english"),"my","custom","words"))
+
+TDM = TermDocumentMatrix(CORPUS_TM)
+
+inspect(TDM)
+
+TDM = as.matrix(TDM)
+
+D = rowSums(TDM)
+
+sort(D[1:20],decreasing = TRUE)
+```
+
+- 직업 타이틀 이름 종류가 486개이므로 묶어주는 작업이 필요함     
+  1. Analysy (anal)     
+  2. Manage (manag)     
+  3. Assistance (assist)     
+  4. Director (dir)    
+  5. Execut (execut)     
+  6. Business (busi)     
+  7. Contract (contra)    
+  8. Maintenance (Maint)      
+  
+```{r}
+str_detect(str = "ABCD" ,"A")
+
+Job_Class = function(x){
+  
+  if( str_detect(str = x , "anal")){
+    
+    y = "Analyst"
+  }else if(str_detect(str = x , "manag")){
+    
+    y = "Management"
+  }else if(str_detect(str = x , "assist")){
+    
+    y = "Assistance"
+  }else if(str_detect(str = x , "dir")){
+    
+    y = "Director"
+    
+  }else if(str_detect(str = x , "exec")){
+    
+    y = "Execute"
+    
+  }else if(str_detect(str = x , "busi")){
+    
+    y = "Business"
+  }else if(str_detect(str = x , "contra")){
+    
+    y = "Contract"
+  }else if(str_detect(str = x , "Maint")){
+    
+    y = "Maintanence"
+  
+  }else{
+  
+    y = "ETC"
+  }
+  return(y)
+}
+  
+
+JOBS = rownames(TDM)
+
+Job_Class(JOBS[1])
+
+```
+
+```{r}
+JOB$Business.Title2 = tolower(JOB$Business.Title)
+
+
+Job_Class(JOB$Business.Title2)
+
+
+BT = c()
+for( k in 1:nrow(JOB)){
+  
+  BT = c(BT, Job_Class(JOB$Business.Title2[k]))
+  
+}
+
+JOB$Business.Title3 = BT
+```
+
+
+```{r}
+JOB %>%
+  group_by(YM,Business.Title3) %>%
+  summarise(Count = length(YM)) %>%
+  filter(Business.Title3 != "ETC" ) %>%
+  filter(!str_detect(YM, "NA")) %>%
+  ggplot() +
+  geom_point(aes(x = YM, y = Count, col = Business.Title3)) +
+  geom_line(aes(x = YM, y = Count, col = Business.Title3, group = Business.Title3)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(~ Business.Title3)
+```
+
+- 요즘 인기가 많은 Analyst에 대해 분석을 진행      
+
+#### Exploratory Data Analysis 2
+
+```{r}
+CORPUS_PS = Corpus(VectorSource(JOB$Preferred.Skills))
+
+CORPUS_PS_TM = tm_map(CORPUS_PS, tolower)
+CORPUS_PS_TM = tm_map(CORPUS_PS_TM, removeNumbers)
+CORPUS_PS_TM = tm_map(CORPUS_PS_TM, removePunctuation)
+CORPUS_PS_TM = tm_map(CORPUS_PS_TM, stripWhitespace)
+CORPUS_PS_TM = tm_map(CORPUS_PS_TM, removeWords,
+                    c(stopwords("english"),"my","custom","words"))
+
+TDM = TermDocumentMatrix(CORPUS_PS_TM)
+inspect(TDM)
+```
+
+```{r}
+TDM = as.matrix(TDM)
+
+# TDM = as.data.frame(TDM)
+
+# TDM$Words = rownames(TDM)
+
+# TDM_G = TDM %>%
+#   group_by(Words) %>%
+#   summarise_each(funs(sum)) 
+
+```
+
+
+- One Hot Encoding     
+
+```{r}
+Convert_One = function(x){
+  
+  y = ifelse(x > 0 , 1, 0)
+  return(y)
+}
+
+TDM_OHE = apply(TDM,2,Convert_One)
+```
+
+```{r}
+
+Word_Count = rowSums(TDM)
+Word_Count <- order(Word_Count, decreasing=T)
+word.freq1_J <- TDM[Word_Count[1:40],]
+co.matrix1_J <- word.freq1_J %*% t(word.freq1_J) 
+
+qgraph(co.matrix1_J, labels=rownames(co.matrix1_J), diag=F,
+       layout='spring', edge.color="#FF3333", vsize=log(diag(co.matrix1_J)),alpha = 0.5)
+```
+
+
+```{r}
+print(JOB$Minimum.Qual.Requirements[1])
+print(JOB$Minimum.Qual.Requirements[3])
+print(JOB$Minimum.Qual.Requirements[160])
+```
+
+```{r}
+JOB$Minimum.Qual.Requirements2 = JOB$Minimum.Qual.Requirements
+
+
+
+JOB$Minimum.Qual.Requirements2 = gsub('\"1\"',"",JOB$Minimum.Qual.Requirements2)
+
+for(i in 1:5){
+  JOB$Minimum.Qual.Requirements2 = gsub(paste('\"',i,'\"',sep = ""),"",JOB$Minimum.Qual.Requirements2)
+}
+
+JOB$Minimum.Qual.Requirements2[1]
+```
+
+```{r}
+summary(as.factor(JOB$Business.Title3))
+
+Analyst = JOB %>%
+  filter(Business.Title3 == "Analyst")
+
+print(Analyst$Minimum.Qual.Requirements[1])
+print(Analyst$Minimum.Qual.Requirements[3])
+print(Analyst$Minimum.Qual.Requirements[160])
+```
+
+```{r}
+
+length(unlist(strsplit(Analyst$Minimum.Qual.Requirements2[1],";")))
+strsplit(Analyst$Minimum.Qual.Requirements2[10],";")
+```
+
+```{r}
+Length = c()
+MR = list()
+
+for(k in 1:nrow(Analyst)){
+  
+  A  = length(unlist(strsplit(Analyst$Minimum.Qual.Requirements2[k],";")))
+  Length = c(Length,A)
+  MR[[k]] = unlist(strsplit(Analyst$Minimum.Qual.Requirements2[k],";"))
+  
+}
+
+```
+
+```{r}
+
+A_MR1 = c()
+A_MR2 = c()
+A_MR3 = c()
+A_MR4 = c()
+A_MR5 = c()
+A_MR6 = c()
+A_MR7 = c()
+A_MR8 = c()
+
+for(k in 1:nrow(Analyst)){
+  
+  A_MR1 = c(A_MR1,MR[[k]][1])
+  A_MR2 = c(A_MR2,MR[[k]][2])
+  A_MR3 = c(A_MR3,MR[[k]][3])
+  A_MR4 = c(A_MR4,MR[[k]][4])
+  A_MR5 = c(A_MR5,MR[[k]][5])
+  A_MR6 = c(A_MR6,MR[[k]][6])
+  A_MR7 = c(A_MR7,MR[[k]][7])
+  A_MR8 = c(A_MR8,MR[[k]][8])
+  
+}
+
+Analyst = Analyst %>%
+  mutate(  A_MR1 = A_MR1,
+            A_MR2 = A_MR2,
+            A_MR3 = A_MR3,
+            A_MR4 = A_MR4,
+            A_MR5 = A_MR5,
+            A_MR6 = A_MR6,
+            A_MR7 = A_MR7,
+            A_MR8 = A_MR8
+  )
+
+
+```
+
+#### A_MR1
+
+
+
+```{r}
+
+Corpus_AMR1 = Corpus(VectorSource(Analyst$A_MR1))
+
+CORPUS_AMR1_TM= tm_map(Corpus_AMR1, tolower)
+CORPUS_AMR1_TM = tm_map(CORPUS_AMR1_TM, removePunctuation)
+CORPUS_AMR1_TM = tm_map(CORPUS_AMR1_TM, stripWhitespace)
+CORPUS_AMR1_TM = tm_map(CORPUS_AMR1_TM, removeWords,
+                    c(stopwords("english"),"my","custom","words"))
+```
+
+```{r}
+TDM = TermDocumentMatrix(CORPUS_AMR1_TM)
+inspect(TDM)
+TDM = as.matrix(TDM)
+D = rowSums(TDM)
+D = sort(D,decreasing = TRUE)
+```
+
+```{r}
+Word_Count = rowSums(TDM)
+Word_Count <- order(Word_Count, decreasing=T)
+word.freq1_J <- TDM[Word_Count[1:20],]
+co.matrix1_J <- word.freq1_J %*% t(word.freq1_J) 
+
+qgraph(co.matrix1_J, labels=rownames(co.matrix1_J), diag=F,
+       layout='spring', edge.color="#FF3333", vsize=log(diag(co.matrix1_J)) * 2,alpha = 0.5)
+```
+
+```{r}
+Analyst$Experience = ifelse(str_detect(tolower(Analyst$A_MR1),"experi"),1,0)
+```
+
+#### Statistical Test 
+
+##### Hypothesis Test
+
+가설1. 분석가의 연봉이 타 직업군에 높을까?      
+귀무가설 : 같다     
+대립가설 : 다르다     
+ 
+```{r}
+summary(JOB$Salary.Range.From)
+summary(JOB$Salary.Range.To)
+
+ggplot(JOB) +
+  geom_histogram(aes(x = JOB$Salary.Range.From), fill = 'royalblue', alpha = 0.4) +
+  geom_histogram(aes(x = JOB$Salary.Range.To), fill = 'red', alpha = 0.4) +
+  theme_classic()
+
+
+ggplot(JOB) +
+  geom_histogram(aes(x = JOB$Salary.Range.To, fill = Business.Title3), alpha = 0.4) +
+  facet_wrap( ~ Business.Title3)
+
+ggplot(JOB) +
+  geom_boxplot(aes(x = JOB$Business.Title3, y = JOB$Salary.Range.To)) +
+  theme_bw()
+```
+
+```{r}
+ANOVA = aov(Salary.Range.To ~ Business.Title3, data = JOB)
+summary(ANOVA)
+
+TUKEY = TukeyHSD(ANOVA)
+
+TUKEY
+plot(TUKEY)
+```
+
+```{r}
+
+Reg = lm(Salary.Range.To ~ Experience , data = Analyst)
+summary(Reg)
+```
+
+
+최근 몇년 간 구직자리 변화 비교     
+
+귀무가설 : 각 직업군 별로 채용인원수가 같다.        
+대립가설 : 다르다.       
+
+```{r}
+JOB_2017 = JOB %>%
+  filter(Posting.Date > '2017-01-01')
+
+Anova = aov(JOB_2017$X..Of.Positions ~ JOB_2017$Business.Title3)
+
+summary(Anova)
+
+JOB %>%
+  filter(Business.Title3 != 'ETC') %>%
+ggplot() +
+  geom_boxplot(aes(x = Business.Title3, y = X..Of.Positions))
+```
